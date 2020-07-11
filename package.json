@@ -1,5 +1,5 @@
 {
-  "name": "viero-webrtc-sfu-server",
+  "name": "@viero/webrtc-sfu-server",
   "version": "1.0.0",
   "description": "WebRTC SFU server library by @vieroinc.",
   "homepage": "https://github.com/vieroinc/viero-webrtc-sfu-server",
