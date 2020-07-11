@@ -1,6 +1,6 @@
 {
   "name": "@viero/webrtc-sfu-server",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "WebRTC SFU server library by @vieroinc.",
   "homepage": "https://github.com/vieroinc/viero-webrtc-sfu-server",
   "contributors": [
@@ -22,7 +22,7 @@
     "@viero/common": "^1.4.4",
     "@viero/common-nodejs": "^1.0.9",
     "@viero/webrtc-common": "^1.0.2",
-    "@viero/webrtc-signaling-server": "^1.2.2",
+    "@viero/webrtc-signaling-server": "^1.2.3",
     "fluent-ffmpeg": "^2.1.2",
     "fluent-ffmpeg-multistream": "^1.0.0",
     "wrtc": "^0.4.5"
