@@ -1,0 +1,110 @@
+'use strict';
+
+const { PassThrough } = require('stream');
+const fs = require('fs');
+
+const { RTCVideoSink } = require('wrtc').nonstandard;
+
+const ffmpeg = require('fluent-ffmpeg');
+const { StreamInput } = require('fluent-ffmpeg-multistream');
+
+const VIDEO_OUTPUT_SIZE = '640x480';
+const VIDEO_OUTPUT_FILE = './recording.mp4';
+
+let UID = 0;
+
+function record(track, peerConnection) {
+  const videoSink = new RTCVideoSink(track);
+
+  const streams = [];
+
+  videoSink.addEventListener('frame', ({ frame: { width, height, data } }) => {
+    const size = width + 'x' + height;
+    if (!streams[0] || (streams[0] && streams[0].size !== size)) {
+      UID++;
+
+      const stream = {
+        recordPath: './recording-' + size + '-' + UID + '.mp4',
+        size,
+        video: new PassThrough(),
+      };
+
+      streams.unshift(stream);
+
+      streams.forEach(item => {
+        if (item !== stream && !item.end) {
+          item.end = true;
+          item.video.end();
+        }
+      })
+
+      stream.proc = ffmpeg()
+        .addInput((new StreamInput(stream.video)).url)
+        .addInputOptions([
+          '-f', 'rawvideo',
+          '-pix_fmt', 'yuv420p',
+          '-s', stream.size,
+          '-r', '30',
+        ])
+        .on('start', () => {
+          console.log('Start recording >> ', stream.recordPath)
+        })
+        .on('end', () => {
+          stream.recordEnd = true;
+          console.log('Stop recording >> ', stream.recordPath)
+        })
+        .size(VIDEO_OUTPUT_SIZE)
+        .output(stream.recordPath);
+
+      stream.proc.run();
+    }
+
+    streams[0].video.push(Buffer.from(data));
+  });
+
+  const { close } = peerConnection;
+  peerConnection.close = function () {
+    videoSink.stop();
+
+    streams.forEach(({ video, end, proc, recordPath }) => {
+      if (!end) {
+        video.end();
+      }
+    });
+
+    let totalEnd = 0;
+    const timer = setInterval(() => {
+      streams.forEach(stream => {
+        if (stream.recordEnd) {
+          totalEnd++;
+          if (totalEnd === streams.length) {
+            clearTimeout(timer);
+
+            const mergeProc = ffmpeg()
+              .on('start', () => {
+                console.log('Start merging into ' + VIDEO_OUTPUT_FILE);
+              })
+              .on('end', () => {
+                streams.forEach(({ recordPath }) => {
+                  fs.unlinkSync(recordPath);
+                })
+                console.log('Merge end. You can play ' + VIDEO_OUTPUT_FILE);
+              });
+
+            streams.forEach(({ recordPath }) => {
+              mergeProc.addInput(recordPath)
+            });
+
+            mergeProc
+              .output(VIDEO_OUTPUT_FILE)
+              .run();
+          }
+        }
+      });
+    }, 1000)
+
+    return close.apply(this, arguments);
+  }
+}
+
+module.exports = { record };
