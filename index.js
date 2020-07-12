@@ -179,8 +179,8 @@ const _peer = (self, nsp, socketId) => {
 };
 
 const _peerFromEnvelope = (self, envelope) => {
-  if (!envelope || !envelope.namespace || !envelope.from) return null;
-  return _peer(self, envelope.namespace, envelope.from);
+  if (!envelope || !envelope.namespace || !(envelope.from || envelope.socketId)) return null;
+  return _peer(self, envelope.namespace, (envelope.from || envelope.socketId));
 };
 
 const _peersOf = (self, nsp) => {
@@ -219,11 +219,15 @@ const _removePeer = (self, peer) => {
   peer.stream.getTracks().forEach((track) => track.stop());
   _oPeersOf(self, peer.nsp, peer).forEach((oPeer) => {
     const opc = oPeer.opcs[peer.socketId];
-    if (opc) oPeer.opcs[peer.socketId].opc.close();
+    if (opc) {
+      opc.close();
+    }
   });
   Object.values(peer.opcs).forEach((opc) => opc.close());
   peer.ipc.close();
-  if (self._nsps[peer.nsp][peer.socketId]) delete self._nsps[peer.nsp][peer.socketId];
+  if (self._nsps[peer.nsp][peer.socketId]) {
+    delete self._nsps[peer.nsp][peer.socketId];
+  }
   self._signalingServer.close(peer.nsp, peer.socketId);
   emitEvent(VieroWebRTCCommon.EVENT.PEER.DID_LEAVE, { peer: _strippedPeer(peer) });
 };
