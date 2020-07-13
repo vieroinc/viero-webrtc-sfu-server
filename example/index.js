@@ -15,6 +15,7 @@
  */
 
 const { VieroLog } = require('@viero/common/log');
+const { VieroError } = require('@viero/common/error');
 const { onEvent } = require('@viero/common-nodejs/event');
 const { VieroHTTPServer } = require('@viero/common-nodejs/http');
 const { bodyFilter } = require('@viero/common-nodejs/http/filters/ext/body');
