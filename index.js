@@ -271,9 +271,9 @@ class VieroWebRTCSFUServer {
     this._nsps = {};
   }
 
-  run(server) {
-    this._server = server;
-    this._signalingServer = new VieroWebRTCSignalingServer();
+  run(httpServer, signalingServer) {
+    this._server = httpServer;
+    this._signalingServer = signalingServer;
     this._signalingServer.run(this._server, { bindAdminEndpoint: true, relayNonAddressed: false });
 
     onEvent(VieroWebRTCSignalingServer.EVENT.DID_CREATE_NAMESPACE, (envelope) => {
