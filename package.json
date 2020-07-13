@@ -1,6 +1,6 @@
 {
   "name": "@viero/webrtc-sfu-server",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "WebRTC SFU server library by @vieroinc.",
   "homepage": "https://github.com/vieroinc/viero-webrtc-sfu-server",
   "contributors": [
@@ -14,6 +14,11 @@
     "type": "git",
     "url": "https://github.com/vieroinc/viero-webrtc-sfu-server.git"
   },
+  "keywords": [
+    "webrtc",
+    "sfu",
+    "videochat"
+  ],
   "main": "index.js",
   "scripts": {
     "reset": "rm -rf node_modules"
