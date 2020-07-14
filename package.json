@@ -1,6 +1,6 @@
 {
   "name": "@viero/webrtc-sfu-server",
-  "version": "1.0.5",
+  "version": "1.0.6",
   "description": "WebRTC SFU server library by @vieroinc.",
   "homepage": "https://github.com/vieroinc/viero-webrtc-sfu-server",
   "contributors": [
@@ -19,18 +19,28 @@
     "sfu",
     "videochat"
   ],
-  "main": "index.js",
   "scripts": {
-    "reset": "rm -rf node_modules"
+    "clean": "rimraf dist",
+    "reset": "npm run clean && rimraf node_modules",
+    "build": "npm run clean && babel src -d ./dist --source-maps inline",
+    "dist": "npm run build && copyfiles package.json README.md LICENSE.md dist",
+    "npmjs": "npm publish ./dist --access public"
   },
+  "module": "./index.js",
   "dependencies": {
-    "@viero/common": "^1.4.4",
-    "@viero/common-nodejs": "^1.0.9",
-    "@viero/webrtc-common": "^1.0.2",
-    "@viero/webrtc-signaling-server": "^1.2.3",
+    "@viero/common": "^1.4.16",
+    "@viero/common-nodejs": "^1.0.11",
+    "@viero/webrtc-common": "^1.0.3",
+    "@viero/webrtc-signaling-server": "^1.2.4",
     "fluent-ffmpeg": "^2.1.2",
     "fluent-ffmpeg-multistream": "^1.0.0",
     "wrtc": "^0.4.5"
   },
-  "devDependencies": {}
+  "devDependencies": {
+    "@babel/cli": "^7.10.4",
+    "@babel/core": "^7.10.4",
+    "@babel/preset-env": "^7.10.4",
+    "copyfiles": "^2.3.0",
+    "rimraf": "^3.0.2"
+  }
 }
