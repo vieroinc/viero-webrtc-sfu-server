@@ -14,49 +14,101 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-const { RTCPeerConnection, RTCSessionDescription, RTCIceCandidate, MediaStream } = require('wrtc');
+const {
+  RTCPeerConnection, RTCSessionDescription, RTCIceCandidate, MediaStream,
+} = require('wrtc');
 const { VieroError } = require('@viero/common/error');
 const { VieroWebRTCSignalingServer } = require('@viero/webrtc-signaling-server');
 const { VieroWebRTCCommon } = require('@viero/webrtc-common');
 const { onEvent, emitEvent } = require('@viero/common-nodejs/event');
 
-const _defaultPeerConnectionConfiguration = {
+const DEFAULT_PEERCONNECTION_CONFIGURATION = {
   iceServers: [
     { urls: 'stun:stun.l.google.com:19302' },
   ],
 };
 
-const _onConnectionStateChange = (self, peer, oPeer, evt) => {
+const peerBySocketId = (self, nsp, socketId) => self.nsps[nsp][socketId];
+
+const peerFromEnvelope = (self, envelope) => {
+  if (!envelope || !envelope.namespace || !(envelope.from || envelope.socketId)) return null;
+  return peerBySocketId(self, envelope.namespace, (envelope.from || envelope.socketId));
+};
+
+const strippedPeer = (peer) => (({ socketId, stream }) => ({ socketId, stream }))(peer);
+
+const peersOf = (self, nsp) => Object.values(self.nsps[nsp] || {});
+
+const oPeersOf = (self, nsp, peer) => peersOf(self, nsp).filter((aPeer) => peer.socketId !== aPeer.socketId);
+
+const updatePeerConnectionOnPeer = (self, peer, oPeer) => {
+  const opc = new RTCPeerConnection(self.peerConnectionConfiguration);
+  // eslint-disable-next-line no-use-before-define
+  opc.addEventListener('connectionstatechange', onConnectionStateChange.bind(null, self, peer, oPeer));
+  // eslint-disable-next-line no-use-before-define
+  opc.addEventListener('icecandidate', onICECandidate.bind(null, self, peer, oPeer));
+  // eslint-disable-next-line no-use-before-define
+  opc.addEventListener('iceconnectionstatechange', onICEConnectionStateChange.bind(null, self, peer, oPeer));
+  // eslint-disable-next-line no-use-before-define
+  opc.addEventListener('icegatheringstatechange', onICEGatheringStateChange.bind(null, self, peer, oPeer));
+  // eslint-disable-next-line no-use-before-define
+  opc.addEventListener('signalingstatechange', onSignalingStateChange.bind(null, self, peer, oPeer));
+  peer.opcs[oPeer.socketId] = opc;
+};
+
+const updatePeerConnectionsOnPeer = (self, peer) => {
+  oPeersOf(self, peer.nsp, peer).forEach((oPeer) => {
+    updatePeerConnectionOnPeer(self, peer, oPeer);
+  });
+};
+
+const updateStreamOnPeer = (self, peer, oPeer) => {
+  const opc = peer.opcs[oPeer.socketId];
+  const senders = opc.getSenders();
+  if (senders.length) senders.forEach((sender) => opc.removeTrack(sender));
+  if (!oPeer.stream) return Promise.resolve();
+  oPeer.stream.getTracks().forEach((track) => opc.addTrack(track, oPeer.stream));
+  // eslint-disable-next-line no-use-before-define
+  return onNegotiationNeeded(self, peer, oPeer);
+};
+
+const updateStreamsOnPeer = (self, peer) => {
+  oPeersOf(self, peer.nsp, peer).forEach((oPeer) => {
+    updateStreamOnPeer(self, peer, oPeer);
+  });
+};
+
+const onConnectionStateChange = (self, peer, oPeer) => {
   emitEvent(VieroWebRTCCommon.EVENT.WEBRTC.STATE_DID_CHANGE, {
     id: oPeer ? 'N/A' : peer.socketId,
     direction: oPeer ? 'out' : 'in',
     state: 'connectionState',
     value: oPeer ? 'N/A' : peer.ipc.connectionState,
   });
-  if (!oPeer && 'disconnected' === peer.ipc.connectionState) {
+  if (!oPeer && peer.ipc.connectionState === 'disconnected') {
     // the peer's incoming ipc connection is gone
     // TODO: handle
-  } else if (oPeer && 'disconnected' === peer.ipc.connectionState) {
+  } else if (oPeer && peer.ipc.connectionState === 'disconnected') {
     // the peer's outgoing opcs[oPeer.socketId] connection is gone
     // TODO: handle
   }
 };
 
-const _onICECandidate = (self, peer, oPeer, evt) => {
+const onICECandidate = (self, peer, oPeer, evt) => {
   if (evt.candidate) {
-    return self._signalingServer.send(
+    self.signalingServer.send(
       peer.nsp,
       {
         word: VieroWebRTCCommon.WORD.CDT,
         data: JSON.parse(JSON.stringify(evt.candidate)),
-        ...(!!oPeer ? { on: oPeer.socketId } : {}),
+        ...(oPeer ? { on: oPeer.socketId } : {}),
       },
       peer.socketId,
     );
   }
 };
 
-const _onICEConnectionStateChange = (self, peer, oPeer, evt) => {
+const onICEConnectionStateChange = (self, peer, oPeer) => {
   emitEvent(VieroWebRTCCommon.EVENT.WEBRTC.STATE_DID_CHANGE, {
     id: oPeer ? 'N/A' : peer.socketId,
     direction: oPeer ? 'out' : 'in',
@@ -65,7 +117,7 @@ const _onICEConnectionStateChange = (self, peer, oPeer, evt) => {
   });
 };
 
-const _onICEGatheringStateChange = (self, peer, oPeer, evt) => {
+const onICEGatheringStateChange = (self, peer, oPeer) => {
   emitEvent(VieroWebRTCCommon.EVENT.WEBRTC.STATE_DID_CHANGE, {
     id: oPeer ? 'N/A' : peer.socketId,
     direction: oPeer ? 'out' : 'in',
@@ -74,27 +126,25 @@ const _onICEGatheringStateChange = (self, peer, oPeer, evt) => {
   });
 };
 
-const _onNegotiationNeeded = (self, peer, oPeer, evt) => {
+const onNegotiationNeeded = (self, peer, oPeer) => {
   const pc = oPeer ? peer.opcs[oPeer.socketId] : peer.ipc;
   return pc.createOffer().then((offer) => {
     pc.setLocalDescription(offer);
-  }).then(() => {
-    return self._signalingServer.send(
-      peer.nsp,
-      {
-        word: VieroWebRTCCommon.WORD.SDP,
-        data: JSON.parse(JSON.stringify(pc.localDescription)),
-        ...(oPeer ? { on: oPeer.socketId } : {}),
-      },
-      peer.socketId,
-    );
-  }).catch((err) => {
+  }).then(() => self.signalingServer.send(
+    peer.nsp,
+    {
+      word: VieroWebRTCCommon.WORD.SDP,
+      data: JSON.parse(JSON.stringify(pc.localDescription)),
+      ...(oPeer ? { on: oPeer.socketId } : {}),
+    },
+    peer.socketId,
+  )).catch((err) => {
     const error = new VieroError('/webrtc/sfu/server', 788167, { [VieroError.KEY.ERROR]: err });
     emitEvent(VieroWebRTCCommon.EVENT.ERROR, { error });
   });
 };
 
-const _onSignalingStateChange = (self, peer, oPeer, evt) => {
+const onSignalingStateChange = (self, peer, oPeer) => {
   emitEvent(VieroWebRTCCommon.EVENT.WEBRTC.STATE_DID_CHANGE, {
     id: oPeer ? 'N/A' : peer.socketId,
     direction: oPeer ? 'out' : 'in',
@@ -103,18 +153,18 @@ const _onSignalingStateChange = (self, peer, oPeer, evt) => {
   });
 };
 
-const _onTrack = (self, peer, evt) => {
+const onTrack = (self, peer, evt) => {
   const stream = evt.streams[0];
   peer.stream = stream;
-  peer.stream.addEventListener('removetrack', (evt) => {
+  peer.stream.addEventListener('removetrack', () => {
     setImmediate(() => {
-      emitEvent(VieroWebRTCCommon.EVENT.TRACK.DID_REMOVE, { peer: _strippedPeer(peer) });
+      emitEvent(VieroWebRTCCommon.EVENT.TRACK.DID_REMOVE, { peer: strippedPeer(peer) });
     });
   });
-  emitEvent(VieroWebRTCCommon.EVENT.TRACK.DID_ADD, { peer: _strippedPeer(peer) });
+  emitEvent(VieroWebRTCCommon.EVENT.TRACK.DID_ADD, { peer: strippedPeer(peer) });
 
-  _oPeersOf(self, peer.nsp, peer).forEach((oPeer) => {
-    _updateStreamOnPeer(self, oPeer, peer);
+  oPeersOf(self, peer.nsp, peer).forEach((oPeer) => {
+    updateStreamOnPeer(self, oPeer, peer);
   });
 
   // RECORDING STUDY:
@@ -122,32 +172,30 @@ const _onTrack = (self, peer, evt) => {
   // record(vTrack, peer.ipc);
 };
 
-const _onMessage = (self, envelope) => {
-  const payload = envelope.payload;
-  if (!payload) return;
+const onMessage = (self, envelope) => {
+  const { payload } = envelope;
+  if (!payload) return Promise.resolve();
   switch (payload.word) {
     case VieroWebRTCCommon.WORD.SDP: {
-      const peer = _peerFromEnvelope(self, envelope);
+      const peer = peerFromEnvelope(self, envelope);
       const sdp = new RTCSessionDescription(payload.data);
       switch (sdp.type) {
         case 'offer': {
-          return peer.ipc.setRemoteDescription(sdp).then(() => {
-            return peer.ipc.createAnswer();
-          }).then((answer) => {
-            return peer.ipc.setLocalDescription(answer);
-          }).then(() => {
-            return self._signalingServer.send(
+          return peer.ipc.setRemoteDescription(sdp)
+            .then(() => peer.ipc.createAnswer())
+            .then((answer) => peer.ipc.setLocalDescription(answer))
+            .then(() => self.signalingServer.send(
               envelope.namespace,
               {
                 word: VieroWebRTCCommon.WORD.SDP,
                 data: JSON.parse(JSON.stringify(peer.ipc.localDescription)),
               },
               envelope.from,
-            );
-          }).catch((err) => {
-            const error = new VieroError('/webrtc/sfu/client', 352177, { [VieroError.KEY.ERROR]: err });
-            emitEvent(VieroWebRTCCommon.EVENT.ERROR, { error });
-          });
+            ))
+            .catch((err) => {
+              const error = new VieroError('/webrtc/sfu/client', 352177, { [VieroError.KEY.ERROR]: err });
+              emitEvent(VieroWebRTCCommon.EVENT.ERROR, { error });
+            });
         }
         case 'answer': {
           return peer.opcs[payload.on].setRemoteDescription(sdp)
@@ -156,47 +204,27 @@ const _onMessage = (self, envelope) => {
               emitEvent(VieroWebRTCCommon.EVENT.ERROR, { error });
             });
         }
-        default: return;
+        default: return Promise.resolve();
       }
     }
     case VieroWebRTCCommon.WORD.CDT: {
-      const peer = _peerFromEnvelope(self, envelope);
+      const peer = peerFromEnvelope(self, envelope);
       const cdt = new RTCIceCandidate(payload.data);
       return (payload.on ? peer.opcs[payload.on] : peer.ipc).addIceCandidate(cdt).catch((err) => {
         const error = new VieroError('/webrtc/sfu/client', 518450, { [VieroError.KEY.ERROR]: err, data: payload.data });
         emitEvent(VieroWebRTCCommon.EVENT.ERROR, { error });
       });
     }
+    default: return Promise.resolve();
   }
-}
-
-const _strippedPeer = (peer) => {
-  return (({ socketId, stream }) => ({ socketId, stream }))(peer);
 };
 
-const _peer = (self, nsp, socketId) => {
-  return self._nsps[nsp][socketId];
+const createNamespace = (self, envelope) => {
+  self.nsps[envelope.namespace] = {};
 };
 
-const _peerFromEnvelope = (self, envelope) => {
-  if (!envelope || !envelope.namespace || !(envelope.from || envelope.socketId)) return null;
-  return _peer(self, envelope.namespace, (envelope.from || envelope.socketId));
-};
-
-const _peersOf = (self, nsp) => {
-  return Object.values(self._nsps[nsp] || {});
-};
-
-const _oPeersOf = (self, nsp, peer) => {
-  return _peersOf(self, nsp).filter((aPeer) => peer.socketId !== aPeer.socketId);
-};
-
-const _createNamespace = (self, envelope) => {
-  self._nsps[envelope.namespace] = {};
-};
-
-const _addPeer = (self, envelope) => {
-  const ipc = new RTCPeerConnection(self._peerConnectionConfiguration);
+const addPeer = (self, envelope) => {
+  const ipc = new RTCPeerConnection(self.peerConnectionConfiguration);
   const peer = {
     nsp: envelope.namespace,
     socketId: envelope.socketId,
@@ -204,20 +232,20 @@ const _addPeer = (self, envelope) => {
     opcs: {},
     stream: new MediaStream([]),
   };
-  ipc.addEventListener('connectionstatechange', _onConnectionStateChange.bind(null, self, peer, null));
-  ipc.addEventListener('icecandidate', _onICECandidate.bind(null, self, peer, null));
-  ipc.addEventListener('iceconnectionstatechange', _onICEConnectionStateChange.bind(null, self, peer, null));
-  ipc.addEventListener('icegatheringstatechange', _onICEGatheringStateChange.bind(null, self, peer, null));
-  ipc.addEventListener('signalingstatechange', _onSignalingStateChange.bind(null, self, peer, null));
-  ipc.addEventListener('track', _onTrack.bind(null, self, peer));
-  self._nsps[envelope.namespace][envelope.socketId] = peer;
-  emitEvent(VieroWebRTCCommon.EVENT.PEER.DID_ENTER, { peer: _strippedPeer(peer) });
+  ipc.addEventListener('connectionstatechange', onConnectionStateChange.bind(null, self, peer, null));
+  ipc.addEventListener('icecandidate', onICECandidate.bind(null, self, peer, null));
+  ipc.addEventListener('iceconnectionstatechange', onICEConnectionStateChange.bind(null, self, peer, null));
+  ipc.addEventListener('icegatheringstatechange', onICEGatheringStateChange.bind(null, self, peer, null));
+  ipc.addEventListener('signalingstatechange', onSignalingStateChange.bind(null, self, peer, null));
+  ipc.addEventListener('track', onTrack.bind(null, self, peer));
+  self.nsps[envelope.namespace][envelope.socketId] = peer;
+  emitEvent(VieroWebRTCCommon.EVENT.PEER.DID_ENTER, { peer: strippedPeer(peer) });
   return peer;
 };
 
-const _removePeer = (self, peer) => {
+const removePeer = (self, peer) => {
   peer.stream.getTracks().forEach((track) => track.stop());
-  _oPeersOf(self, peer.nsp, peer).forEach((oPeer) => {
+  oPeersOf(self, peer.nsp, peer).forEach((oPeer) => {
     const opc = oPeer.opcs[peer.socketId];
     if (opc) {
       opc.close();
@@ -225,89 +253,57 @@ const _removePeer = (self, peer) => {
   });
   Object.values(peer.opcs).forEach((opc) => opc.close());
   peer.ipc.close();
-  if (self._nsps[peer.nsp][peer.socketId]) {
-    delete self._nsps[peer.nsp][peer.socketId];
+  if (self.nsps[peer.nsp][peer.socketId]) {
+    delete self.nsps[peer.nsp][peer.socketId];
   }
-  self._signalingServer.close(peer.nsp, peer.socketId);
-  emitEvent(VieroWebRTCCommon.EVENT.PEER.DID_LEAVE, { peer: _strippedPeer(peer) });
-};
-
-const _updatePeerConnectionsOnPeer = (self, peer) => {
-  _oPeersOf(self, peer.nsp, peer).forEach((oPeer) => {
-    _updatePeerConnectionOnPeer(self, peer, oPeer);
-  });
-}
-
-const _updatePeerConnectionOnPeer = (self, peer, oPeer) => {
-  const opc = new RTCPeerConnection(self._peerConnectionConfiguration);
-  opc.addEventListener('connectionstatechange', _onConnectionStateChange.bind(null, self, peer, oPeer));
-  opc.addEventListener('icecandidate', _onICECandidate.bind(null, self, peer, oPeer));
-  opc.addEventListener('iceconnectionstatechange', _onICEConnectionStateChange.bind(null, self, peer, oPeer));
-  opc.addEventListener('icegatheringstatechange', _onICEGatheringStateChange.bind(null, self, peer, oPeer));
-  opc.addEventListener('signalingstatechange', _onSignalingStateChange.bind(null, self, peer, oPeer));
-  peer.opcs[oPeer.socketId] = opc;
-}
-
-const _updateStreamsOnPeer = (self, peer) => {
-  _oPeersOf(self, peer.nsp, peer).forEach((oPeer) => {
-    _updateStreamOnPeer(self, peer, oPeer);
-  });
-};
-
-const _updateStreamOnPeer = (self, peer, oPeer) => {
-  const opc = peer.opcs[oPeer.socketId];
-  const senders = opc.getSenders();
-  if (senders.length) senders.forEach((sender) => opc.removeTrack(sender));
-  if (!oPeer.stream) return Promise.resolve();
-  oPeer.stream.getTracks().forEach((track) => opc.addTrack(track, oPeer.stream));
-  return _onNegotiationNeeded(self, peer, oPeer);
+  self.signalingServer.close(peer.nsp, peer.socketId);
+  emitEvent(VieroWebRTCCommon.EVENT.PEER.DID_LEAVE, { peer: strippedPeer(peer) });
 };
 
 class VieroWebRTCSFUServer {
-
   constructor(options) {
     options = options || {};
-    this._peerConnectionConfiguration = options.peerConnectionConfiguration || _defaultPeerConnectionConfiguration;
-    this._nsps = {};
+    this.peerConnectionConfiguration = options.peerConnectionConfiguration || DEFAULT_PEERCONNECTION_CONFIGURATION;
+    this.nsps = {};
   }
 
   run(httpServer, signalingServer) {
     this._server = httpServer;
-    this._signalingServer = signalingServer;
-    this._signalingServer.run(this._server, { bindAdminEndpoint: true, relayNonAddressed: false });
+    this.signalingServer = signalingServer;
+    this.signalingServer.run(this._server, { bindAdminEndpoint: true, relayNonAddressed: false });
 
     onEvent(VieroWebRTCSignalingServer.EVENT.DID_CREATE_NAMESPACE, (envelope) => {
-      _createNamespace(this, envelope);
+      createNamespace(this, envelope);
     });
 
     onEvent(VieroWebRTCSignalingServer.EVENT.DID_ENTER_NAMESPACE, (envelope) => {
-      const peer = _addPeer(this, envelope);
+      const peer = addPeer(this, envelope);
 
       // 1. make an opc on each existing peers on this peer
-      _updatePeerConnectionsOnPeer(this, peer);
+      updatePeerConnectionsOnPeer(this, peer);
 
       // 2. route all existing incoming streams into the new opcs of this peer
-      _updateStreamsOnPeer(this, peer);
+      updateStreamsOnPeer(this, peer);
 
       // 3. make an additional opc on each existing peers to this peer
-      _oPeersOf(this, peer.nsp, peer).forEach((oPeer) => {
-        _updatePeerConnectionOnPeer(this, oPeer, peer);
+      oPeersOf(this, peer.nsp, peer).forEach((oPeer) => {
+        updatePeerConnectionOnPeer(this, oPeer, peer);
       });
     });
 
     onEvent(VieroWebRTCSignalingServer.EVENT.WILL_RELAY_ENVELOPE, (envelope) => {
       // messages not meant for us we ignore
       if (!envelope || envelope.to) return;
-      _onMessage(this, envelope);
+      onMessage(this, envelope);
     });
 
     // we are not interested in events on our own send() calls
     // onEvent(VieroWebRTCSignalingServer.EVENT.WILL_DELIVER_ENVELOPE, (envelope) => {});
 
     onEvent(VieroWebRTCSignalingServer.EVENT.DID_LEAVE_NAMESPACE, (envelope) => {
-      const peer = _peerFromEnvelope(this, envelope);
+      const peer = peerFromEnvelope(this, envelope);
       if (peer) {
-        _removePeer(this, peer);
+        removePeer(this, peer);
       }
     });
   }
