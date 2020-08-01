@@ -1,6 +1,6 @@
 {
   "name": "@viero/webrtc-sfu-server",
-  "version": "1.0.9",
+  "version": "1.0.10",
   "description": "WebRTC SFU server library by @vieroinc.",
   "homepage": "https://github.com/vieroinc/viero-webrtc-sfu-server",
   "contributors": [
@@ -22,27 +22,27 @@
   "scripts": {
     "clean": "rimraf dist",
     "reset": "npm run clean && rimraf node_modules",
-    "build": "npm run clean && babel src -d ./dist --source-maps inline",
-    "dist": "npm run build && copyfiles package.json README.md LICENSE.md dist",
     "lint": "eslint ./src",
-    "npmjs": "npm publish ./dist --access public"
+    "build": "npm run lint && npm run clean && babel src -d ./dist --source-maps inline",
+    "dist": "npm run build && copyfiles package.json README.md LICENSE.md dist",
+    "npmjs": "npm run dist && npm publish ./dist --access public"
   },
   "module": "./index.js",
   "dependencies": {
-    "@viero/common": "^1.5.0",
-    "@viero/common-nodejs": "^1.0.14",
+    "@viero/common": "^1.5.2",
+    "@viero/common-nodejs": "^1.1.5",
     "@viero/webrtc-common": "^1.0.3",
-    "@viero/webrtc-signaling-server": "^1.2.7",
+    "@viero/webrtc-signaling-server": "^1.2.8",
     "fluent-ffmpeg": "^2.1.2",
     "fluent-ffmpeg-multistream": "^1.0.0",
     "wrtc": "^0.4.6"
   },
   "devDependencies": {
     "@babel/cli": "^7.10.5",
-    "@babel/core": "^7.10.5",
-    "@babel/preset-env": "^7.10.4",
+    "@babel/core": "^7.11.0",
+    "@babel/preset-env": "^7.11.0",
     "copyfiles": "^2.3.0",
-    "eslint": "^7.5.0",
+    "eslint": "^7.6.0",
     "eslint-config-airbnb-base": "^14.2.0",
     "eslint-plugin-import": "^2.22.0",
     "prettier": "^2.0.5",
