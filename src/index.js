@@ -53,6 +53,7 @@ const updatePeerConnectionOnPeer = (self, peer, oPeer) => {
   opc.addEventListener('icegatheringstatechange', onICEGatheringStateChange.bind(null, self, peer, oPeer));
   // eslint-disable-next-line no-use-before-define
   opc.addEventListener('signalingstatechange', onSignalingStateChange.bind(null, self, peer, oPeer));
+  // eslint-disable-next-line no-param-reassign
   peer.opcs[oPeer.socketId] = opc;
 };
 
@@ -155,6 +156,7 @@ const onSignalingStateChange = (self, peer, oPeer) => {
 
 const onTrack = (self, peer, evt) => {
   const stream = evt.streams[0];
+  // eslint-disable-next-line no-param-reassign
   peer.stream = stream;
   peer.stream.addEventListener('removetrack', () => {
     setImmediate(() => {
@@ -220,6 +222,7 @@ const onMessage = (self, envelope) => {
 };
 
 const createNamespace = (self, envelope) => {
+  // eslint-disable-next-line no-param-reassign
   self.nsps[envelope.namespace] = {};
 };
 
@@ -238,6 +241,7 @@ const addPeer = (self, envelope) => {
   ipc.addEventListener('icegatheringstatechange', onICEGatheringStateChange.bind(null, self, peer, null));
   ipc.addEventListener('signalingstatechange', onSignalingStateChange.bind(null, self, peer, null));
   ipc.addEventListener('track', onTrack.bind(null, self, peer));
+  // eslint-disable-next-line no-param-reassign
   self.nsps[envelope.namespace][envelope.socketId] = peer;
   emitEvent(VieroWebRTCCommon.EVENT.PEER.DID_ENTER, { peer: strippedPeer(peer) });
   return peer;
@@ -254,6 +258,7 @@ const removePeer = (self, peer) => {
   Object.values(peer.opcs).forEach((opc) => opc.close());
   peer.ipc.close();
   if (self.nsps[peer.nsp][peer.socketId]) {
+    // eslint-disable-next-line no-param-reassign
     delete self.nsps[peer.nsp][peer.socketId];
   }
   self.signalingServer.close(peer.nsp, peer.socketId);
@@ -262,6 +267,7 @@ const removePeer = (self, peer) => {
 
 class VieroWebRTCSFUServer {
   constructor(options) {
+    // eslint-disable-next-line no-param-reassign
     options = options || {};
     this.peerConnectionConfiguration = options.peerConnectionConfiguration || DEFAULT_PEERCONNECTION_CONFIGURATION;
     this.nsps = {};
